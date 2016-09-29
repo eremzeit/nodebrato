@@ -1,0 +1,25 @@
+{
+  "name": "nodebrato",
+  "version": "0.0.1",
+  "description": "Librato bindings for node with some extra features",
+  "main": "index.js",
+  "scripts": {
+    "test": "npm test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eremzeit/nodebrato.git"
+  },
+  "keywords": [
+    "node",
+    "librato",
+    "aggregation",
+    "metrics"
+  ],
+  "author": "Alan Jones",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/eremzeit/nodebrato/issues"
+  },
+  "homepage": "https://github.com/eremzeit/nodebrato#readme"
+}
