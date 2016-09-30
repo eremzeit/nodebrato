@@ -1,7 +1,9 @@
 
 # Nodebrato
 
-A node.js library for aggregating and submitting to Librato Metrics.
+A node.js bindings for Librato metrics that provides advanced statistics which allow you to reduce your reporting frequency and ultimately lower your montly Librato bill.
+
+It was originally created for [http://showgoers.tv](Showgoers)
 
 ## Features
 
