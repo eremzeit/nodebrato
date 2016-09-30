@@ -5,23 +5,70 @@ A node.js library for aggregating and submitting to Librato Metrics.
 
 ## Features
 
-- Supports pre-registering metric definitions 
-- Can metric definitions automatically so that you don't have to do that manually in the librato interface.
+- Supports pre-registering metric definitions
+- Can update metric definitions automatically so that you don't have to do that manually in the librato interface.
 - Gives more control over how each individual metric is collected, aggregated and submitted
-  - Reporting intervals can be defined on a per-metric basis, which can save you money
-  - Define separate client-side aggregation functions and librato-side aggregation functions
-- Implements additional client-side aggregation functions, such as quantiles
-- Supports Librato graph annotations
-
+  - Reporting intervals can be defined on a per-metric basis.  This can can save you money by allowing you to only report when you need to.
+  - Supports defining separate client-side aggregation functions and librato-side aggregation functions
+    - This lets you use aggregation functions that librato doesn't support (eg. advanced stastistics and *quantiles*)
+    - By giving you more additional descriptive statistics, you can drastically increase your reporting period (less $$$) but still have a clear understanding of that stat.
+    - It's also useful for librato power users who make heavy use of alerts and composite functions.
+- Supports Librato graph annotations (eg. for marking deployments, etc)
 
 ### How is this different from `librato-node`?
 
 - `librato-node` aggregates all measurements inline, which limits flexibility but is more suited for extremely high performance reporting.
-- `librato-node` is written in coffeescript
+- `librato-node` is written in Coffeescript
 
-## Metric Definitions
-
-```
+## Example
 
 ```
+let metricDefinitions = {
+  'errors': {
+    libratoAggFunction: 'sum',
+    periodMs: 10000 //perhaps we want errors reported at a higher resolution than other metrics
+  },
 
+  'star_rating': {
+    libratoAggFunction: 'mean',
+  },
+
+  'web_requests': {
+    clientAggFunction: 'sum',
+    libratoAggFunction: 'mean',
+    libratoOptions: {
+      type: 'measurement',
+      display_name: 'Site Requests',
+      description: 'The number of requests made to the web server',
+      attributes: {
+
+      }
+    },
+  },
+
+  'response_time_ms': {
+    clientAggFunction: 'quantiles',
+    libratoAggFunction: 'min',
+    quantiles: [0, .1, .90, 1], //when submitted to librato, will actually create 4 separate metrics (ie. response_time_ms.q0, response_time_ms.q10, response_time_ms.q90, response_time_ms.q100)
+    periodMs: 30 * 60 * 1000  //because we're intelligently aggregating, we only need to report every thirty minutes
+  }
+}
+
+let librato = new Librato({
+  source: 'my_default_source',
+  definitions: metricDefinitions,
+  logging: true, //turn on debug output to console
+  periodMs: 10000
+})
+
+librato.start()
+
+librato.increment('requests', 10)
+librato.measure('response_time_ms', 1)
+librato.measure('star_rating', 5)
+librato.measure('star_rating', 4, 'another_source')
+
+librato.measure('not_defined_metric', 1)  //when using the measure method will default to "mean" as an aggregation function
+librato.increment('not_defined_count', 1)  //when using the increment method will default to "sum" as an aggregation function
+
+```
