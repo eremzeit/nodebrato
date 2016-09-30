@@ -20,7 +20,7 @@ It was originally created for [http://showgoers.tv](Showgoers)
 ### How is this different from `librato-node`?
 
 - `librato-node` aggregates all measurements inline, which limits flexibility but is more suited for extremely high performance reporting.
-- `librato-node` is written in Coffeescript
+- `librato-node` is written in Coffeescript.
 
 ## Example
 
