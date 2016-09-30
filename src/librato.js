@@ -16,14 +16,15 @@ class Librato {
     this.options = Object.assign({}, options, {
       source: options.source || process.env.NODEJS_ENV,
       definitions: options.definitions || {},
-      basePeriodMs: options.basePeriodMs || 60000,
+      periodMs: options.periodMs || 60000,
       logging: options.logging || false
     })
 
-    this.options.pollingIntervalMs = Math.max(this.options.basePeriodMs / 20, 1000)
+    // In the future we could make a better way to synchronize the reporting of the individual metrics
+    // but for now just check in often if any of the metrics are ready for submitting.
+    this.options.pollingIntervalMs = Math.max(this.options.periodMs / 20, 1000)
 
     this.definitions = this.options.definitions = this._processDefinitions(this.options.definitions)
-
     this.lastSubmittedAt = {}
     this.samples = {}
   }
@@ -257,9 +258,7 @@ class Librato {
       def.key = key
 
       if (!def.periodMs) {
-        def.periodMs = this.options.basePeriodMs
-      } else if (def.periodMs % this.options.basePeriodMs != 0){
-        throw new Error(`The periodMs specified for definition '${key}' must be a multiple of the basePeriodMs ${this.options.basePeriodMs}`)
+        def.periodMs = this.options.periodMs
       }
 
       acc[key] = def
@@ -304,7 +303,6 @@ class Librato {
   }
 
   _getClientAggFunction(fnKey, options) {
-
     switch (fnKey) {
       case 'sum':
         return SimpleStats.sum
@@ -444,5 +442,33 @@ function updateMetricsToLibrato(email, token, attributes) {
   return d.promise
 }
 
-module.exports = Librato
 
+/*
+ * attributes - Should be in the form of...
+ * {
+ *   "title": "My Annotation",
+ *   "description": "Joe deployed v29 to metrics",
+ *   "source": null,
+ *   "start_time": 1234567890,
+ *   "end_time": null,
+ *   "links": [  ]
+ * }
+ */
+function createAnnotation(email, token, metricName, attributes) {
+  let options = {
+    method: 'POST',
+    uri: `https://metrics-api.librato.com/v1/annotations/${metricName}`,
+    headers: libratoHeaders(email, token),
+    json: attributes
+  }
+
+  request.post(options, (err, res, body) => {
+    if (err || res.statusCode >= 400) {
+      d.reject(body)
+    } else {
+      d.resolve(res)
+    }
+  })
+}
+
+module.exports = Librato

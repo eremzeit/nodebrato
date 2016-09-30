@@ -176,7 +176,7 @@ describe('.clearKeys', function() {
     librato.clearKeys(['foo_sum'])
   })
 
-  it('creates an array for submission', function() {
+  it('clears the keys specified', function() {
     let metrics = librato.aggregateAll()
     expect(_.keys(metrics)).to.deep.equal(['foo_mean'])
   })
