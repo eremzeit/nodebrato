@@ -3,12 +3,12 @@
 
 A node.js bindings for Librato metrics that provides advanced statistics which allow you to reduce your reporting frequency and ultimately lower your montly Librato bill.
 
-It was originally created for [http://showgoers.tv](Showgoers)
+It was originally created for [http://showgoers.tv](Showgoers) but I forked it out of that codebase to open it up for community use and contributions.
 
 ## Features
 
 - Supports pre-registering metric definitions
-- Can update metric definitions automatically so that you don't have to do that manually in the librato interface.
+- Can update metric definitions automatically so that you don't have to do that manually in the librato interface. (edit: this feature hasn't quite been merged into master.  Pull-requests are welcome!)
 - Gives more control over how each individual metric is collected, aggregated and submitted
   - Reporting intervals can be defined on a per-metric basis.  This can can save you money by allowing you to only report when you need to.
   - Supports defining separate client-side aggregation functions and librato-side aggregation functions
