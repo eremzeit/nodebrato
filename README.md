@@ -30,18 +30,17 @@ let metricDefinitions = {
   },
 
   'star_rating': {
-    libratoAggFunction: 'mean',
+    libratoAggFunction: 'average',
   },
 
   'web_requests': {
     clientAggFunction: 'sum',
-    libratoAggFunction: 'mean',
-    libratoOptions: {
-      type: 'measurement',
+    libratoAggFunction: 'average',
+    libratoMetricProperties: {
       display_name: 'Site Requests',
       description: 'The number of requests made to the web server',
       attributes: {
-
+        color: '#ff0000'
       }
     },
   },

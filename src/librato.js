@@ -6,6 +6,8 @@ const request = require('request')
 const Q = require('q')
 const _ = require('underscore')
 
+const libratoAggegationFunctions = ['average', 'sum', 'count', 'min', 'max']
+const clientAggegationFunctions = ['mean', 'median', 'sum', 'min', 'max', 'quantiles', 'std_dev']
 
 class Librato {
   constructor(options) {
@@ -14,11 +16,21 @@ class Librato {
     options = options || {}
 
     this.options = Object.assign({}, options, {
-      source: options.source || process.env.NODEJS_ENV,
+      source: options.source || process.env.NODE_ENV,
       definitions: options.definitions || {},
       periodMs: options.periodMs || 60000,
-      logging: options.logging || false
+      logging: options.logging || false,
+      loggingVerbose: options.loggingVerbose || false,
+      libratoNamePrefix: options.libratoNamePrefix ? `${options.libratoNamePrefix}.` : ''
     })
+
+    if (!this.options.source) {
+      throw new Error(`Must provide a source`)
+    }
+
+    if ((!this.options.email || !this.options.token) && !this.options.skipSubmit) {
+      throw new Error(`Missing email or token: ${this.options}`)
+    }
 
     // In the future we could make a better way to synchronize the reporting of the individual metrics
     // but for now just check in often if any of the metrics are ready for submitting.
@@ -31,6 +43,7 @@ class Librato {
 
   start() {
     this.intervalId = setInterval(() => {
+      this._logVerbose('samples: ', _.chain(this.samples).values().map(x => _.values(x)).flatten(false).value().length)
       this.submitMetrics()
     }, this.options.pollingIntervalMs)
   }
@@ -46,14 +59,23 @@ class Librato {
   }
 
   findReadyKeys() {
-    return _.keys(this.samples).filter((k) => {
-      let def = this._getDefinition(k)
-      return !this.lastSubmittedAt[k] || (_.now() - this.lastSubmittedAt[k]) >= def.periodMs
-    })
+    this.lastSubmittedAt = this.lastSubmittedAt || {}
+
+    return _.chain(this.samples).keys()
+      .filter((k) => {
+        let def = this._getDefinition(k)
+
+        if (this.lastSubmittedAt[k]) {
+          let periodMs = def.periodMs || this.options.periodMs
+          return (_.now() - this.lastSubmittedAt[k]) >= periodMs
+        } else {
+          return true
+        }
+      }).value()
   }
 
   gatherForLibratoSubmission(keys) {
-    if (!keys) keys = _.keys(this.samples)
+    keys = keys || _.keys(this.samples)
     if (!_.isArray(keys)) keys = [keys]
 
     keys = _.intersection(keys, this.findReadyKeys())
@@ -68,10 +90,12 @@ class Librato {
       let _gauges = _.reduce(_.keys(bySource), (acc, source) => {
         let metric = bySource[source]
 
+        let fullMetricName = metric.metricName
+
         let item = {
-          name: metric.metricName,
+          name: this._fullMetricName(metric.metricName),
           value: metric.value,
-          source: source,
+          source: source
         }
 
         acc.push(item)
@@ -90,28 +114,78 @@ class Librato {
   }
 
   submitMetrics() {
-    let result = this.gatherForLibratoSubmission()
+    let toSubmit = this.gatherForLibratoSubmission()
     let now = _.now()
 
-    return this._submit(result.gauges).finally(() => {
-      _.each(result.keys, (k) => {
+    return this._submit(toSubmit.gauges).then((r)=> {
+      return toSubmit
+    }).finally(() => {
+      _.each(toSubmit.keys, (k) => {
         let def = this._getDefinition(k)
 
         if (this.lastSubmittedAt[k]) {
-          this.lastSubmittedAt[k] = this.lastSubmittedAt[k] + def.periodMs
+          let periodMs = def.periodMs || this.options.periodMs
+          this.lastSubmittedAt[k] = this.lastSubmittedAt[k] + periodMs
         } else {
           this.lastSubmittedAt[k] = now
         }
       })
 
-      this.clearKeys(result.keys)
+      this.clearKeys(toSubmit.keys)
+    })
+  }
+
+  updateMetricDefinitions() {
+    return updateMetricsToLibrato(this.options.email, this.options.token, allMetricProperties).then((res)=> {
+      this._log(`Updated metrics: ${allMetricProperties.map(props => props.name)}`)
+    }, (err) => {
+      console.error(`Error while updating metrics: ${err.message}`)
+    })
+  }
+
+  _gatherMetricPropertiesForLibrato(keys) {
+    keys = keys || _.keys(this.definitions)
+
+    return _.chain(keys)
+      .map(key => this.definitions[key])
+      .map(this._metricDefinitionToLibratoProperties.bind(this))
+      .flatten(true).value()
+  }
+
+  _metricDefinitionToLibratoProperties(def) {
+    let props = def.libratoMetricProperties || {}
+
+    let metricProps
+    if (_.isArray(def.quantiles)) {
+      metricProps = _.map(def.quantiles, (q) =>  {
+        return Object.assign({}, props, { name: this._metricNameForQuantile(def.key, q) })
+      })
+    } else {
+      metricProps = [
+        Object.assign({}, props, { name: def.key })
+      ]
+    }
+
+    return _.map(metricProps, (props) => {
+
+      let attributes = Object.assign({}, props.attributes || {}, {
+        summarize_function : def.libratoAggFunction,
+        aggregate: this.options.libratoServerSideAggregation || false
+      })
+
+      return Object.assign(props, {
+        type : 'gauge', //we only support gauges now
+        name : this._fullMetricName(props.name),
+        period : Math.round(def.periodMs / 1000),
+        attributes
+      })
+      return props
     })
   }
 
   _submit(gauges) {
-    this._log('Submitting gauges', gauges.map(g=>g.name))
 
-    if (this.skipSubmit) {
+    if (this.options.skipSubmit || gauges.length == 0) {
       return Q(null)
     } else {
       return postGaugesToLibrato(this.options.email, this.options.token, gauges).then((response) => {
@@ -125,8 +199,7 @@ class Librato {
             s += response
           }
 
-          this._logVerbose(response)
-          this._log(`Submitted metrics ${result.metricNames}`)
+          this._log(`Submitted metrics ${gauges.map(g => g.name)}`)
         }
       }).fail((err) => {
         console.error('Error')
@@ -245,26 +318,64 @@ class Librato {
   }
 
   _processDefinitions(definitions) {
-    return _.reduce(_.keys(definitions), (acc, key) => {
-      let def = Object.assign({}, definitions[key])
+    return _.chain(definitions)
+      .keys()
+      .map((key) => {
 
-      if (def.type == 'counter') {
-        def.clientAggFunction = 'sum'
-        def.libratoAggFunction = 'sum'
-      }
+        let def = Object.assign({}, definitions[key])
 
-      def.libratoAggFunction = def.libratoAggFunction  || def.clientAggFunction
-      def.clientAggFunction = def.clientAggFunction  || def.libratoAggFunction
-      def.key = key
+        if (def.type == 'counter') {
+          def.clientAggFunction = 'sum'
+          def.libratoAggFunction = 'sum'
+        }
 
-      if (!def.periodMs) {
-        def.periodMs = this.options.periodMs
-      }
+        def.libratoAggFunction = def.libratoAggFunction  || def.clientAggFunction
+        def.clientAggFunction = def.clientAggFunction  || def.libratoAggFunction
 
-      acc[key] = def
+        if (def.libratoAggFunction == 'mean') {
+          def.libratoAggFunction = 'average'
+        }
 
-      return acc
-    }, {})
+        def.key = key
+
+        if (!def.periodMs) {
+          def.periodMs = this.options.periodMs
+        }
+
+        return def
+      }).tap((defs)=> {
+        _.each(defs, (def) => {
+          let error = this._definitionError(def)
+          if (error) {
+
+            console.error(def)
+            throw new Error(error)
+          }
+        })
+      }).reduce((acc, def) => {
+        acc[def.key] = def
+        return acc
+      }, {}).value()
+  }
+
+  _definitionError(def) {
+    if (!_.contains(libratoAggegationFunctions, def.libratoAggFunction)) {
+      return `libratoAggFunction is invalid: ${def.libratoAggFunction}`
+    }
+
+    if (!_.contains(clientAggegationFunctions, def.clientAggFunction)) {
+      return `clientAggFunction is invalid: ${def.clientAggFunction}`
+    }
+
+    return null
+  }
+
+  _fullMetricName(metricName) {
+    return `${this.options.libratoNamePrefix}` + metricName
+  }
+
+  _metricNameForQuantile(key, quantile) {
+    return `${key}.q${Math.round(quantile * 100)}`
   }
 
   _aggregateSamples(samples, definition) {
@@ -283,7 +394,7 @@ class Librato {
       let values = aggFn(sampleValues, quantiles)
 
       _.each(quantiles, (q, i) => {
-        let metricName = `${definition.key}.q${Math.round(q * 100)}`
+        let metricName = this._metricNameForQuantile(definition.key, q)
 
         metrics.push({
           metricName,
@@ -334,7 +445,7 @@ class Librato {
   }
 
   _logVerbose() {
-    if (this.options.logVerbose) {
+    if (this.options.loggingVerbose) {
       console.log.apply(null, (['librato: '].concat(Array.prototype.slice.call(arguments))))
     }
   }
@@ -353,7 +464,7 @@ function postGaugesToLibrato(email, token, gauges) {
 
   let d = Q.defer()
 
-  let authHash = Buffer.from(`${email}:${token}`).toString('base64')
+  let authHash = makeAuthHash(email, token)
 
   let options = {
     method: 'POST',
@@ -383,7 +494,7 @@ function updateMetricsToLibrato(email, token, gauges) {
 
   let d = Q.defer()
 
-  let authHash = Buffer.from(`${email}:${token}`).toString('base64')
+  let authHash = makeAuthHash(email, token)
 
   let options = {
     method: 'POST',
@@ -406,21 +517,44 @@ function updateMetricsToLibrato(email, token, gauges) {
   return d.promise
 }
 
-function authHash(email, token) {
-  return Buffer.from(`${email}:${token}`).toString('base64')
+function makeAuthHash(email, token) {
+  let majorVersion = parseInt(process.version.split('.')[0])
+  if (majorVersion >= 6) {
+    return Buffer.from(`${email}:${token}`).toString('base64')
+  } else {
+    return new Buffer(`${email}:${token}`).toString('base64')
+  }
 }
 
 function libratoHeaders(email, token) {
   return {
-    Authorization: 'Basic ' + authHash(email, token),
+    Authorization: 'Basic ' + makeAuthHash(email, token),
     'user-agent': `showgoers`
   }
 }
 
-function updateMetricsToLibrato(email, token, attributes) {
+function updateMetricsToLibrato(email, token, allMetricProperties) {
+  return _.reduce(allMetricProperties, (q, props) => {
+    q = q.then(updateMetricToLibrato(email, token, props)).delay(1000)
+  }, Q(null))
+}
+
+function updateMetricToLibrato(email, token, metricProperties) {
   if (!attributes.name) {
     throw new Error('Librato metrics must have a name')
   }
+
+  metricProperties = _.pick('name', 'period', 'description', 'display_name', 'attributes', 'source_lag')
+  metricProperties.attributes = _.pick(metricProperties.attributes,
+    'color', //hex string
+    'display_max',
+    'display_min',
+    'display_units_long',
+    'display_units_short',
+    'display_stacked',
+    'display_transform'
+  )
+
 
   let d = Q.defer()
 
@@ -428,13 +562,18 @@ function updateMetricsToLibrato(email, token, attributes) {
     method: 'POST',
     uri: `https://metrics-api.librato.com/v1/metrics/${attributes.name}`,
     headers: libratoHeaders(email, token),
-    json: attributes
+    json: metricProperties
   }
 
   request.post(options, (err, res, body) => {
+    let successCodes = [202, 204]
+
     if (err || res.statusCode >= 400) {
       d.reject(body)
     } else {
+      if (!_.contains(acceptedCodes, res.statusCode)) {
+        console.warn(`Expected status code in ${statusCodes.join(', ')}.  Got ${res.statusCode}`)
+      }
       d.resolve(res)
     }
   })
@@ -454,10 +593,10 @@ function updateMetricsToLibrato(email, token, attributes) {
  *   "links": [  ]
  * }
  */
-function createAnnotation(email, token, metricName, attributes) {
+function createAnnotation(email, token, libratoMetricName, attributes) {
   let options = {
     method: 'POST',
-    uri: `https://metrics-api.librato.com/v1/annotations/${metricName}`,
+    uri: `https://metrics-api.librato.com/v1/annotations/${libratoMetricName}`,
     headers: libratoHeaders(email, token),
     json: attributes
   }
