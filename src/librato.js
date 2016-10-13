@@ -21,7 +21,8 @@ class Librato {
       periodMs: options.periodMs || 60000,
       logging: options.logging || false,
       loggingVerbose: options.loggingVerbose || false,
-      libratoNamePrefix: options.libratoNamePrefix ? `${options.libratoNamePrefix}.` : ''
+      libratoNamePrefix: options.libratoNamePrefix ? `${options.libratoNamePrefix}.` : '',
+      blacklist: options.blacklist || []
     })
 
     if (!this.options.source) {
@@ -222,6 +223,8 @@ class Librato {
   }
 
   _record(key, value, source) {
+    if (_.any(this.options.blacklist, pattern => key.match(pattern))) return
+
     source = source || this._getDefinition(key).source || this.options.source
 
     this.samples[key] = this.samples[key] || {}

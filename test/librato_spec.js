@@ -91,7 +91,6 @@ describe('.aggregateSamples', function() {
   })
 
   describe('when theres no samples', function() {
-
     it('returns returns an empty object', function() {
       let r = librato.aggregateAll()
       expect(r).to.be.empty
@@ -274,5 +273,18 @@ describe('._gatherForSubmission', function() {
       { name: 'foo_quantiles.q50', value: 5, source: 'baz' },
       { name: 'foo_quantiles.q100', value: 5, source: 'baz' }
     ])
+  })
+})
+
+describe('Blacklisting', function() {
+  beforeEach(function() {
+    librato = new Librato({source: 'test', skipSubmit: true, definitions: metricDefinitions, blacklist: [/foo_sum/]})
+    librato.increment('foo_sum', 2, 'bar')
+  })
+
+  it('creates an array for submission', function() {
+    let metrics = librato.gatherForLibratoSubmission()
+    expectSetsEqual(metrics.keys, [])
+    expect(metrics.gauges).to.deep.equal([])
   })
 })
