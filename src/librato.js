@@ -118,21 +118,21 @@ class Librato {
     let toSubmit = this.gatherForLibratoSubmission()
     let now = _.now()
 
+    _.each(toSubmit.keys, (k) => {
+      let def = this._getDefinition(k)
+
+      if (this.lastSubmittedAt[k]) {
+        let periodMs = def.periodMs || this.options.periodMs
+        this.lastSubmittedAt[k] = this.lastSubmittedAt[k] + periodMs
+      } else {
+        this.lastSubmittedAt[k] = now
+      }
+    })
+    this.clearKeys(toSubmit.keys)
+
     return this._submit(toSubmit.gauges).then((r)=> {
       return toSubmit
     }).finally(() => {
-      _.each(toSubmit.keys, (k) => {
-        let def = this._getDefinition(k)
-
-        if (this.lastSubmittedAt[k]) {
-          let periodMs = def.periodMs || this.options.periodMs
-          this.lastSubmittedAt[k] = this.lastSubmittedAt[k] + periodMs
-        } else {
-          this.lastSubmittedAt[k] = now
-        }
-      })
-
-      this.clearKeys(toSubmit.keys)
     })
   }
 
