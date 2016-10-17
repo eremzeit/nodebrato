@@ -1,6 +1,6 @@
 {
   "name": "nodebrato",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "Librato bindings for node with some extra features",
   "main": "index.js",
   "scripts": {
